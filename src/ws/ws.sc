@@ -11,7 +11,8 @@ val f = Fork(c, d, List(c.char, d.char), c.weight + d.weight)
 val g = makeCodeTree(e, f)
 g.chars
 val t = times(string2Chars("aafffba ccdddd"))
-//makeOrderedLeafList(t)
+
+makeOrderedLeafList(t)
 
 
 
