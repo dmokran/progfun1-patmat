@@ -98,20 +98,20 @@ object Huffman {
    * of a leaf is the frequency of the character.
    */
     def makeOrderedLeafList(freqs: List[(Char, Int)]): List[Leaf] = {
-      def insertLeaf(pair: (Char, Int), lList: List[Leaf]): List[Leaf] = {
+      def insertLeaf(pair: (Char, Int), lList: List[Leaf], accList: List[Leaf]): List[Leaf] = {
         lList match {
           case List() => List(Leaf(pair._1, pair._2))
-          case lh :: lt => if (pair._2 < lh.weight) {
-            Leaf(pair._1, pair._2) :: lList
-            } else {
-              lh :: insertLeaf(pair, lt)
-            }
+          case lh :: lt =>
+            if (pair._2 <= lh.weight) {
+              if (accList.isEmpty) Leaf(pair._1, pair._2) :: lList
+              else accList ::: List(Leaf(pair._1, pair._2)) ::: lList
+            } else insertLeaf (pair, lt, lh :: accList)
         }
       }
       def sortList(inList: List[(Char, Int)], ordList: List[Leaf]): List[Leaf] = {
         inList match {
           case List() => ordList
-          case xh :: xt => sortList(xt, insertLeaf(xh, ordList))
+          case xh :: xt => sortList(xt, insertLeaf(xh, ordList, Nil))
         }
       }
       sortList(freqs, Nil)
@@ -120,7 +120,13 @@ object Huffman {
   /**
    * Checks whether the list `trees` contains only one single code tree.
    */
-    def singleton(trees: List[CodeTree]): Boolean = ???
+    def singleton(trees: List[CodeTree]): Boolean = {
+      trees match {
+        case List() => false
+        case xh :: Nil => true
+        case xh :: xt => false
+      }
+    }
   
   /**
    * The parameter `trees` of this function is a list of code trees ordered
@@ -134,7 +140,37 @@ object Huffman {
    * If `trees` is a list of less than two elements, that list should be returned
    * unchanged.
    */
-    def combine(trees: List[CodeTree]): List[CodeTree] = ???
+    def combine(trees: List[CodeTree]): List[CodeTree] = {
+      def insertCodeTree(ct: CodeTree, ctl: List[CodeTree], accList: List[CodeTree]): List[CodeTree] = {
+        if (ctl.isEmpty) List(ct)
+        else {
+          ct match {
+            case Fork(_, _, _, w1) => {
+              ctl.head match {
+                case Leaf(_, w2) => {
+                  if (w1 <= w2) {
+                    if (accList.isEmpty) ct :: ctl else accList ::: List(ct) ::: ctl
+                  } else insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                }
+                case Fork(_, _, _, w2) => {
+                  if (w1 <= w2) {
+                    if (accList.isEmpty) ct :: ctl else accList ::: List(ct) ::: ctl
+                  } else insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                }
+              }
+          }
+            case (_) => throw new UnknownError("Code Tree is not a Fork!")
+          }
+        }
+      }
+      trees match {
+        case List() => trees
+        case xh :: Nil => trees
+        case xh :: xt => {
+          combine(insertCodeTree(makeCodeTree(xh, xt.head), xt.tail, Nil))
+        }
+      }
+    }
   
   /**
    * This function will be called in the following way:
