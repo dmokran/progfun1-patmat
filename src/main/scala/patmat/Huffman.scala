@@ -100,12 +100,14 @@ object Huffman {
     def makeOrderedLeafList(freqs: List[(Char, Int)]): List[Leaf] = {
       def insertLeaf(pair: (Char, Int), lList: List[Leaf], accList: List[Leaf]): List[Leaf] = {
         lList match {
-          case List() => List(Leaf(pair._1, pair._2))
+          case List() => {
+            if (accList.isEmpty) List(Leaf(pair._1, pair._2)) else accList ::: List(Leaf(pair._1, pair._2))
+          }
           case lh :: lt =>
             if (pair._2 <= lh.weight) {
               if (accList.isEmpty) Leaf(pair._1, pair._2) :: lList
               else accList ::: List(Leaf(pair._1, pair._2)) ::: lList
-            } else insertLeaf (pair, lt, lh :: accList)
+            } else insertLeaf (pair, lt, accList ::: List(lh))
         }
       }
       def sortList(inList: List[(Char, Int)], ordList: List[Leaf]): List[Leaf] = {
@@ -142,7 +144,9 @@ object Huffman {
    */
     def combine(trees: List[CodeTree]): List[CodeTree] = {
       def insertCodeTree(ct: CodeTree, ctl: List[CodeTree], accList: List[CodeTree]): List[CodeTree] = {
-        if (ctl.isEmpty) List(ct)
+        if (ctl.isEmpty) {
+          if (accList.isEmpty) List(ct) else accList ::: List(ct)
+        }
         else {
           ct match {
             case Fork(_, _, _, w1) => {
@@ -150,12 +154,20 @@ object Huffman {
                 case Leaf(_, w2) => {
                   if (w1 <= w2) {
                     if (accList.isEmpty) ct :: ctl else accList ::: List(ct) ::: ctl
-                  } else insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                  } else if (accList.isEmpty) {
+                    insertCodeTree(ct, ctl.tail, List(ctl.head))
+                  } else {
+                    insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                  }
                 }
                 case Fork(_, _, _, w2) => {
                   if (w1 <= w2) {
                     if (accList.isEmpty) ct :: ctl else accList ::: List(ct) ::: ctl
-                  } else insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                  } else if (accList.isEmpty) {
+                    insertCodeTree(ct, ctl.tail, List(ctl.head))
+                  } else {
+                    insertCodeTree(ct, ctl.tail, accList ::: List(ctl.head))
+                  }
                 }
               }
           }
@@ -167,7 +179,7 @@ object Huffman {
         case List() => trees
         case xh :: Nil => trees
         case xh :: xt => {
-          combine(insertCodeTree(makeCodeTree(xh, xt.head), xt.tail, Nil))
+          insertCodeTree(makeCodeTree(xh, xt.head), xt.tail, Nil)
         }
       }
     }
@@ -189,7 +201,9 @@ object Huffman {
    *    the example invocation. Also define the return type of the `until` function.
    *  - try to find sensible parameter names for `xxx`, `yyy` and `zzz`.
    */
-    //def until(xxx: ???, yyy: ???)(zzz: ???): ??? = ???
+    def until(condition: List[CodeTree] => Boolean, func: List[CodeTree] => List[CodeTree])(structure: List[CodeTree]): List[CodeTree] = {
+      if (condition(structure)) structure else until(condition, func)(func(structure))
+    }
   
   /**
    * This function creates a code tree which is optimal to encode the text `chars`.
@@ -197,7 +211,13 @@ object Huffman {
    * The parameter `chars` is an arbitrary text. This function extracts the character
    * frequencies from that text and creates a code tree based on them.
    */
-    def createCodeTree(chars: List[Char]): CodeTree = ???
+    def createCodeTree(chars: List[Char]): CodeTree = {
+      until(singleton, combine)(makeOrderedLeafList(times(chars))) match {
+        case List() => throw new UnknownError("Unexpected empty list")
+        case xh :: Nil => xh
+        case xh :: xt => throw new UnknownError("Too many elements in the list")
+      }
+    }
   
 
   // Part 3: Decoding
@@ -208,7 +228,32 @@ object Huffman {
    * This function decodes the bit sequence `bits` using the code tree `tree` and returns
    * the resulting list of characters.
    */
-    def decode(tree: CodeTree, bits: List[Bit]): List[Char] = ???
+    def decode(tree: CodeTree, bits: List[Bit]): List[Char] = {
+      def decodeF(tr: CodeTree, b: List[Bit], msg: List[Char], origTree: CodeTree): List[Char] = {
+        b match {
+          case List() => msg
+          case bh :: bt => {
+            tr match {
+              case Leaf(ch, w) => {
+                if (msg.isEmpty) {
+                  decodeF(origTree, bt, ch :: msg, origTree)
+                } else {
+                  decodeF(origTree, bt, msg ::: List(ch), origTree)
+                }
+              }
+              case Fork(l, r, ch, w) => {
+                if (bh == 0) {
+                  decodeF(l, bt, msg, origTree)
+                } else {
+                  decodeF(r, bt, msg, origTree)
+                }
+              }
+            }
+          }
+        }
+      }
+      decodeF(tree, bits, Nil, tree)
+    }
   
   /**
    * A Huffman coding tree for the French language.
@@ -226,7 +271,7 @@ object Huffman {
   /**
    * Write a function that returns the decoded secret
    */
-    def decodedSecret: List[Char] = ???
+    def decodedSecret: List[Char] = decode(frenchCode, secret)
   
 
   // Part 4a: Encoding using Huffman tree
@@ -235,7 +280,39 @@ object Huffman {
    * This function encodes `text` using the code tree `tree`
    * into a sequence of bits.
    */
-    def encode(tree: CodeTree)(text: List[Char]): List[Bit] = ???
+    def encode(tree: CodeTree)(text: List[Char]): List[Bit] = {
+      def checkExist(node: CodeTree, ch: Char): Boolean = {
+        node match {
+          case Fork(_, _, chars, _) => chars.contains(ch)
+          case Leaf(c, _) => c == ch
+        }
+      }
+      def encodeF(tr: CodeTree, tx: List[Char], bitList: List[Bit], origTree: CodeTree): List[Bit] = {
+        tx match {
+          case List() => bitList
+          case bh :: bt => {
+            tr match {
+              case Leaf(ch, w) => {
+                if (bh == ch) {
+                  //remove character, reset tree
+                  encodeF(origTree, bt, bitList, origTree)
+                } else throw new UnknownError("Reached the wrong leaf")
+              }
+              case Fork(l, r, ch, w) => {
+                if (checkExist(l, bh)) {
+                  //choose left
+                  if (bitList.isEmpty) encodeF(l, tx, 0 :: bitList, origTree) else encodeF(l, tx, bitList ::: List(0), origTree)
+                } else if (checkExist(r, bh)) {
+                  //choose right
+                  if (bitList.isEmpty) encodeF(l, tx, 1 :: bitList, origTree) else encodeF(r, tx, bitList ::: List(1), origTree)
+                } else throw new UnknownError("Character not found")
+              }
+            }
+          }
+        }
+      }
+      encodeF(tree, text, Nil, tree)
+    }
   
   // Part 4b: Encoding using code table
 
