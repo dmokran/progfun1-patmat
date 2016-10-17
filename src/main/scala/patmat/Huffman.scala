@@ -350,7 +350,7 @@ object Huffman {
         (ct, txt, msg) match {
           case (_, Nil, msg) => msg
           case ((ch, lst) :: ctt, th :: tt, Nil) => if (ch == th) qEncodeF(origCT, tt, lst, origCT) else qEncodeF(ctt, txt, Nil, origCT)
-          case ((ch, lst) :: ctt, th :: tt, msg) => if (ch == th) qEncodeF(origCT, tt, msg ::: lst, origCT) else qEncodeF(origCT, txt, msg, origCT)
+          case ((ch, lst) :: ctt, th :: tt, msg) => if (ch == th) qEncodeF(origCT, tt, msg ::: lst, origCT) else qEncodeF(ctt, txt, msg, origCT)
           case (_, _, _) => throw new UnknownError("Quick Encode failed")
         }
       }

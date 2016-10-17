@@ -40,7 +40,5 @@ convert(frenchCode)
 
 val cTable = convert(t1)
 "ab".toList
-
-//quickEncode(t1)("ab".toList)
-
+quickEncode(h)("abd".toList)
 
