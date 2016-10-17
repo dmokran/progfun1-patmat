@@ -230,31 +230,17 @@ object Huffman {
    */
     def decode(tree: CodeTree, bits: List[Bit]): List[Char] = {
       def decodeF(tr: CodeTree, b: List[Bit], msg: List[Char], origTree: CodeTree): List[Char] = {
-        b match {
-          case List() => msg
-          case bh :: bt => {
-            tr match {
-              case Leaf(ch, w) => {
-                if (msg.isEmpty) {
-                  decodeF(origTree, bt, ch :: msg, origTree)
-                } else {
-                  decodeF(origTree, bt, msg ::: List(ch), origTree)
-                }
-              }
-              case Fork(l, r, ch, w) => {
-                if (bh == 0) {
-                  decodeF(l, bt, msg, origTree)
-                } else {
-                  decodeF(r, bt, msg, origTree)
-                }
-              }
-            }
-          }
+        (b, tr, msg) match {
+          case (List(), Leaf(ch, w), _) => msg ::: List(ch)
+          case (bh :: bt, Leaf(ch, w), Nil) => decodeF(origTree, b, ch :: msg, origTree)
+          case (bh :: bt, Leaf(ch, w), mh :: mt) => decodeF(origTree, b, msg ::: List(ch), origTree)
+          case (bh :: bt, Fork(l, r, ch, w), _) => if (bh == 0) decodeF(l, bt, msg, origTree) else decodeF(r, bt, msg, origTree)
+          case (_, _, _) => throw new UnknownError("decode failed")
         }
       }
       decodeF(tree, bits, Nil, tree)
     }
-  
+
   /**
    * A Huffman coding tree for the French language.
    * Generated from the data given at
@@ -287,28 +273,18 @@ object Huffman {
           case Leaf(c, _) => c == ch
         }
       }
-      def encodeF(tr: CodeTree, tx: List[Char], bitList: List[Bit], origTree: CodeTree): List[Bit] = {
-        tx match {
-          case List() => bitList
-          case bh :: bt => {
-            tr match {
-              case Leaf(ch, w) => {
-                if (bh == ch) {
-                  //remove character, reset tree
-                  encodeF(origTree, bt, bitList, origTree)
-                } else throw new UnknownError("Reached the wrong leaf")
-              }
-              case Fork(l, r, ch, w) => {
-                if (checkExist(l, bh)) {
-                  //choose left
-                  if (bitList.isEmpty) encodeF(l, tx, 0 :: bitList, origTree) else encodeF(l, tx, bitList ::: List(0), origTree)
-                } else if (checkExist(r, bh)) {
-                  //choose right
-                  if (bitList.isEmpty) encodeF(l, tx, 1 :: bitList, origTree) else encodeF(r, tx, bitList ::: List(1), origTree)
-                } else throw new UnknownError("Character not found")
-              }
-            }
+      def encodeF(tr: CodeTree, txt: List[Char], bitList: List[Bit], origTree: CodeTree): List[Bit] = {
+        (txt, tr) match {
+          case (List(), _) => bitList
+          case (th :: tt, Leaf(ch, w)) => if (th == ch) encodeF(origTree, tt, bitList, origTree) else throw new UnknownError("Reached the wrong leaf")
+          case (th :: tt, Fork(l ,r, ch, w)) => {
+            if (checkExist(l, th)) {
+              if (bitList.isEmpty) encodeF(l, txt, 0 :: bitList, origTree) else encodeF(l, txt, bitList ::: List(0), origTree)
+            } else if (checkExist(r, th)) {
+              if (bitList.isEmpty) encodeF(r, txt, 1 :: bitList, origTree) else encodeF(r, txt, bitList ::: List(1), origTree)
+            } else throw new UnknownError("Character not found")
           }
+          case (_, _) => throw new UnknownError("Encode failed")
         }
       }
       encodeF(tree, text, Nil, tree)
@@ -322,7 +298,10 @@ object Huffman {
    * This function returns the bit sequence that represents the character `char` in
    * the code table `table`.
    */
-    def codeBits(table: CodeTable)(char: Char): List[Bit] = ???
+    def codeBits(table: CodeTable)(char: Char): List[Bit] = table match {
+      case List() => throw new UnknownError("Character not found in table")
+      case (ch, bitList) :: ctt => if (ch == char) bitList else codeBits(ctt)(char)
+    }
   
   /**
    * Given a code tree, create a code table which contains, for every character in the
@@ -332,14 +311,32 @@ object Huffman {
    * a valid code tree that can be represented as a code table. Using the code tables of the
    * sub-trees, think of how to build the code table for the entire tree.
    */
-    def convert(tree: CodeTree): CodeTable = ???
+    def convert(tree: CodeTree): CodeTable = {
+      tree match {
+        case Leaf(ch, w) => List((ch, List()))
+        case Fork(l, r, ch, w) => mergeCodeTables(convert(l), convert(r))
+      }
+    }
   
   /**
    * This function takes two code tables and merges them into one. Depending on how you
    * use it in the `convert` method above, this merge method might also do some transformations
    * on the two parameter code tables.
    */
-    def mergeCodeTables(a: CodeTable, b: CodeTable): CodeTable = ???
+    def mergeCodeTables(a: CodeTable, b: CodeTable): CodeTable = {
+      def addBit(bit: Bit, ct: CodeTable): CodeTable = {
+        ct match {
+          case List() => ct
+          case (ch, bitPath) :: ctt => (ch, bit :: bitPath) :: addBit(bit, ctt)
+        }
+      }
+      (a, b) match {
+        case (List(), List()) => List()
+        case (List(), bh :: bt) => addBit(1, b)
+        case (ah :: at, List()) => addBit(0, a)
+        case (ah :: at, bh :: bt) => addBit(0, a) ++ addBit(1, b)
+      }
+    }
   
   /**
    * This function encodes `text` according to the code tree `tree`.
@@ -347,5 +344,16 @@ object Huffman {
    * To speed up the encoding process, it first converts the code tree to a code table
    * and then uses it to perform the actual encoding.
    */
-    def quickEncode(tree: CodeTree)(text: List[Char]): List[Bit] = ???
+    def quickEncode(tree: CodeTree)(text: List[Char]): List[Bit] = {
+      val cTable = convert(tree)
+      def qEncodeF(ct: CodeTable, txt: List[Char], msg: List[Bit], origCT: CodeTable): List[Bit] = {
+        (ct, txt, msg) match {
+          case (_, Nil, msg) => msg
+          case ((ch, lst) :: ctt, th :: tt, Nil) => if (ch == th) qEncodeF(origCT, tt, lst, origCT) else qEncodeF(ctt, txt, Nil, origCT)
+          case ((ch, lst) :: ctt, th :: tt, msg) => if (ch == th) qEncodeF(origCT, tt, msg ::: lst, origCT) else qEncodeF(origCT, txt, msg, origCT)
+          case (_, _, _) => throw new UnknownError("Quick Encode failed")
+        }
+      }
+      qEncodeF(cTable, text, Nil, cTable)
+    }
   }
